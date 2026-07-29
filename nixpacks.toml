@@ -1,6 +1,5 @@
 [phases.setup]
-nixPkgs = ["gcc", "gfortran"]
-nixPkgs = ["python311", "pkg-config", "openssl", "libffi"]
+nixPkgs = ["gcc", "gfortran", "python311", "pkg-config", "openssl", "libffi"]
 
 [phases.install]
 cmds = ["pip install --upgrade pip", "pip install --upgrade setuptools wheel"]
