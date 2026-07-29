@@ -1,0 +1,43 @@
+cat > .gitignore << 'EOF'
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Railway specific
+*.log
+
+# Models (Optional - if you want to retrain on Railway)
+# models/
+
+# Data
+*.csv
+!predictive_maintenance.csv
+
+# Environment
+.env
+*.env
+EOF
