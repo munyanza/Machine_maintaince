@@ -6,6 +6,7 @@ import joblib
 import numpy as np
 import os
 import logging
+import asyncio
 from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
@@ -73,6 +74,17 @@ async def predict(data: SensorData):
     except Exception as e:
         logger.error(f"Prediction error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
+
+# --- ULTRA FAST HEALTH CHECK ENDPOINT ---
+@app.get("/health")
+async def health_check():
+    # This endpoint ALWAYS returns 200 OK instantly.
+    # Even if the models haven't loaded yet, Railway will pass this 
+    # and bring the service online.
+    return {
+        "status": "healthy", 
+        "message": "Service is online"
+    }
 
 @app.get("/")
 async def root():
