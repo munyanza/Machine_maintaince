@@ -6,7 +6,6 @@ import joblib
 import numpy as np
 import os
 import logging
-import time
 from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
@@ -23,9 +22,7 @@ model = None
 scaler = None
 encoder = None
 feature_columns = None
-STARTUP_TIME = time.time()
 
-# --- BACKGROUND LOADING ---
 @app.on_event("startup")
 async def load_models():
     global model, scaler, encoder, feature_columns, MODEL_LOADED
@@ -76,19 +73,6 @@ async def predict(data: SensorData):
     except Exception as e:
         logger.error(f"Prediction error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
-
-# --- SMART HEALTH CHECK ---
-@app.get("/health")
-async def health_check():
-    # If less than 5 seconds have passed since startup, return "loading"
-    if time.time() - STARTUP_TIME < 5:
-        return {"status": "loading", "message": "Initializing models, please wait..."}
-    
-    # Otherwise, return actual health status
-    return {
-        "status": "healthy" if MODEL_LOADED else "unhealthy",
-        "model_loaded": MODEL_LOADED
-    }
 
 @app.get("/")
 async def root():
