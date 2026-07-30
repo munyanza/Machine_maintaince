@@ -6,6 +6,7 @@ import joblib
 import numpy as np
 import os
 import logging
+import time
 from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
@@ -16,18 +17,19 @@ app = FastAPI(title="Predictive Maintenance API", version="0.1.0")
 MODEL_PATH = 'models/'
 THRESHOLD = 0.5
 
-# --- LAZY LOAD MODELS (Global variables start as None) ---
+# --- LAZY LOAD MODELS ---
 MODEL_LOADED = False
 model = None
 scaler = None
 encoder = None
 feature_columns = None
+STARTUP_TIME = time.time()
 
-# --- BACKGROUND LOADING ON STARTUP ---
+# --- BACKGROUND LOADING ---
 @app.on_event("startup")
 async def load_models():
     global model, scaler, encoder, feature_columns, MODEL_LOADED
-    logger.info("⏳ Loading models in the background...")
+    logger.info("⏳ Starting background model loading...")
     try:
         model = joblib.load(os.path.join(MODEL_PATH, 'model.joblib'))
         scaler = joblib.load(os.path.join(MODEL_PATH, 'scaler.joblib'))
@@ -49,10 +51,9 @@ class SensorData(BaseModel):
 @app.post("/predict")
 async def predict(data: SensorData):
     if not MODEL_LOADED:
-        raise HTTPException(status_code=503, detail="Model still loading, please try again in a few seconds")
-
+        raise HTTPException(status_code=503, detail="System initializing, please wait 10 seconds and retry")
+    
     try:
-        # Build the dictionary using the raw CSV column names
         raw_data = {
             'Air temperature [K]': [data.Air_temperature_K],
             'Process temperature [K]': [data.Process_temperature_K],
@@ -61,14 +62,8 @@ async def predict(data: SensorData):
             'Tool wear [min]': [data.Tool_wear_min],
             'Type': [encoder.transform([data.Type])[0]]
         }
-        
-        # Create DataFrame
         input_df = pd.DataFrame(raw_data)
-        
-        # Force the DataFrame columns to match the EXACT order from training
         input_df = input_df[feature_columns]
-        
-        # Scale and Predict
         scaled_features = scaler.transform(input_df)
         proba = model.predict_proba(scaled_features)[0]
         prediction = int(proba[1] >= THRESHOLD)
@@ -82,17 +77,19 @@ async def predict(data: SensorData):
         logger.error(f"Prediction error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
-# --- INSTANT HEALTH CHECK ---
+# --- SMART HEALTH CHECK ---
 @app.get("/health")
 async def health_check():
-    # Immediately returns healthy so Railway stops retrying.
-    # The models will load in the background.
+    # If less than 5 seconds have passed since startup, return "loading"
+    if time.time() - STARTUP_TIME < 5:
+        return {"status": "loading", "message": "Initializing models, please wait..."}
+    
+    # Otherwise, return actual health status
     return {
-        "status": "healthy", 
-        "model_loaded": MODEL_LOADED, 
-        "timestamp": datetime.utcnow().isoformat() + "Z"
+        "status": "healthy" if MODEL_LOADED else "unhealthy",
+        "model_loaded": MODEL_LOADED
     }
 
 @app.get("/")
 async def root():
-    return {"message": "Predictive Maintenance API is running", "status": "healthy"}
+    return {"message": "Predictive Maintenance API is running"}
