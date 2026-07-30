@@ -16,19 +16,27 @@ app = FastAPI(title="Predictive Maintenance API", version="0.1.0")
 MODEL_PATH = 'models/'
 THRESHOLD = 0.5
 
-# Load Models
-try:
-    model = joblib.load(os.path.join(MODEL_PATH, 'model.joblib'))
-    scaler = joblib.load(os.path.join(MODEL_PATH, 'scaler.joblib'))
-    encoder = joblib.load(os.path.join(MODEL_PATH, 'type_encoder.joblib'))
-    # CRITICAL FIX: Load the exact order of columns from training
-    feature_columns = joblib.load(os.path.join(MODEL_PATH, 'feature_columns.joblib'))
-    MODEL_LOADED = True
-    logger.info(f"✅ Models loaded successfully. Features: {feature_columns}")
-except Exception as e:
-    logger.error(f"❌ Failed to load models: {e}")
-    model = scaler = encoder = feature_columns = None
-    MODEL_LOADED = False
+# --- LAZY LOAD MODELS (Global variables start as None) ---
+MODEL_LOADED = False
+model = None
+scaler = None
+encoder = None
+feature_columns = None
+
+# --- BACKGROUND LOADING ON STARTUP ---
+@app.on_event("startup")
+async def load_models():
+    global model, scaler, encoder, feature_columns, MODEL_LOADED
+    logger.info("⏳ Loading models in the background...")
+    try:
+        model = joblib.load(os.path.join(MODEL_PATH, 'model.joblib'))
+        scaler = joblib.load(os.path.join(MODEL_PATH, 'scaler.joblib'))
+        encoder = joblib.load(os.path.join(MODEL_PATH, 'type_encoder.joblib'))
+        feature_columns = joblib.load(os.path.join(MODEL_PATH, 'feature_columns.joblib'))
+        MODEL_LOADED = True
+        logger.info("✅ Models loaded successfully.")
+    except Exception as e:
+        logger.error(f"❌ Failed to load models: {e}")
 
 class SensorData(BaseModel):
     Type: str = Field(..., example="L")
@@ -41,11 +49,10 @@ class SensorData(BaseModel):
 @app.post("/predict")
 async def predict(data: SensorData):
     if not MODEL_LOADED:
-        raise HTTPException(status_code=503, detail="Model not loaded")
+        raise HTTPException(status_code=503, detail="Model still loading, please try again in a few seconds")
 
     try:
         # Build the dictionary using the raw CSV column names
-        # NOTE: We do NOT use a loop here to ensure 100% explicit mapping
         raw_data = {
             'Air temperature [K]': [data.Air_temperature_K],
             'Process temperature [K]': [data.Process_temperature_K],
@@ -58,8 +65,7 @@ async def predict(data: SensorData):
         # Create DataFrame
         input_df = pd.DataFrame(raw_data)
         
-        # SENIOR FIX: Force the DataFrame columns to match the EXACT order from training
-        # This is the magic line that fixes the "Feature names should match" error.
+        # Force the DataFrame columns to match the EXACT order from training
         input_df = input_df[feature_columns]
         
         # Scale and Predict
@@ -76,11 +82,16 @@ async def predict(data: SensorData):
         logger.error(f"Prediction error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
+# --- INSTANT HEALTH CHECK ---
 @app.get("/health")
 async def health_check():
-    if not MODEL_LOADED:
-        return {"status": "unhealthy"}
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat() + "Z"}
+    # Immediately returns healthy so Railway stops retrying.
+    # The models will load in the background.
+    return {
+        "status": "healthy", 
+        "model_loaded": MODEL_LOADED, 
+        "timestamp": datetime.utcnow().isoformat() + "Z"
+    }
 
 @app.get("/")
 async def root():
